@@ -33,7 +33,7 @@ int main(int *argc, char *argv[])
 	char option;
 	int ipversion=AF_INET;//IPv4 por defecto
 	char ipdest[256];
-	char default_ip4[16]="127.0.0.1";
+	char default_ip4[16]="150.214.179.118";
 	char default_ip6[64]="::1";
 	int num1 = 0;
 
@@ -53,22 +53,12 @@ int main(int *argc, char *argv[])
 	}
 	//Fin: Inicialización Windows sockets
 	
-	printf("**************\r\nCLIENTE TCP SENCILLO SOBRE IPv4 o IPv6\r\n*************\r\n");
+	printf("**************\r\nCLIENTE SMTP SENCILLO SOBRE IPv4 o IPv6\r\n*************\r\n");
 	
 
 	do{
 
-		printf("CLIENTE> ¿Qué versión de IP desea usar? 6 para IPv6, 4 para IPv4 [por defecto] ");
-		gets_s(ipdest, sizeof(ipdest));
-
-		if (strcmp(ipdest, "6") == 0) {
-			ipversion = AF_INET6;
-
-		}
-		else { //Distinto de 6 se elige la versión 4
-			ipversion = AF_INET;
-		}
-
+	
 		sockfd=socket(ipversion,SOCK_STREAM,0);
 		if(sockfd==INVALID_SOCKET){
 			printf("CLIENTE> ERROR\r\n");
@@ -82,9 +72,7 @@ int main(int *argc, char *argv[])
 			if(strcmp(ipdest,"")==0 && ipversion==AF_INET)
 				strcpy_s(ipdest,sizeof(ipdest),default_ip4);
 
-			if(strcmp(ipdest,"")==0 && ipversion==AF_INET6)
-				strcpy_s(ipdest, sizeof(ipdest),default_ip6);
-
+		
 			if(ipversion==AF_INET){
 				server_in4.sin_family=AF_INET;
 				server_in4.sin_port=htons(TCP_SERVICE_PORT);
@@ -94,16 +82,7 @@ int main(int *argc, char *argv[])
 				address_size = sizeof(server_in4);
 			}
 
-			if(ipversion==AF_INET6){
-				memset(&server_in6, 0, sizeof(server_in6));
-				server_in6.sin6_family=AF_INET6;
-				server_in6.sin6_port=htons(TCP_SERVICE_PORT);
-				inet_pton(ipversion,ipdest,&server_in6.sin6_addr);
-				server_in=(struct sockaddr*)&server_in6;
-				address_size = sizeof(server_in6);
-			}
-
-			estado=S_HELO;
+			estado=S_W;
 
 			if(connect(sockfd, server_in, address_size)==0){
 				printf("CLIENTE> CONEXION ESTABLECIDA CON %s:%d\r\n",ipdest,TCP_SERVICE_PORT);
@@ -111,12 +90,12 @@ int main(int *argc, char *argv[])
 				//Inicio de la máquina de estados
 				do{
 					switch(estado){
-					case S_HELO:
+					case S_W:
 						// Se recibe el mensaje de bienvenida
 						break;
-					case S_USER:
+					case S_HELO:
 						// establece la conexion de aplicacion 
-						printf("CLIENTE> Introduzca el usuario (enter para salir): ");
+						printf("SMTP> Introduzca el nombre de host (enter para salir): ");
 						gets_s(input,sizeof(input));
 						if(strlen(input)==0){
 							sprintf_s (buffer_out, sizeof(buffer_out), "%s%s",SD,CRLF);
@@ -124,20 +103,30 @@ int main(int *argc, char *argv[])
 						}
 						else
 
-						sprintf_s (buffer_out, sizeof(buffer_out), "%s %s%s",SC,input,CRLF);
+						sprintf_s (buffer_out, sizeof(buffer_out), "%s %s%s",HL,input,CRLF);
 						break;
-					case S_PASS:
-						printf("CLIENTE> Introduzca la clave (enter para salir): ");
+					case S_MAIL:
+						printf("SMTP> Introduzca el correo del remitente (enter para salir):\r\n.\r\n");
 						gets_s(input, sizeof(input));
 						if(strlen(input)==0){
 							sprintf_s (buffer_out, sizeof(buffer_out), "%s%s",SD,CRLF);
 							estado=S_QUIT;
 						}
 						else
-							sprintf_s (buffer_out, sizeof(buffer_out), "%s %s%s",PW,input,CRLF);
+							sprintf_s (buffer_out, sizeof(buffer_out), "%s %s%s",MF,input,CRLF);
+						break;
+					case S_RCPT:
+						printf("SMTP> Introduzca el correo del destinatario (enter para salir):\r\n.\r\n");
+						gets_s(input, sizeof(input));
+						if (strlen(input) == 0) {
+							sprintf_s(buffer_out, sizeof(buffer_out), "%s%s", SD, CRLF);
+							estado = S_QUIT;
+						}
+						else
+							sprintf_s(buffer_out, sizeof(buffer_out), "%s %s%s", RT, input, CRLF);
 						break;
 					case S_DATA:
-						printf("CLIENTE> Introduzca datos (enter o QUIT para salir): ");
+						/*printf("CLIENTE> Introduzca datos (enter o QUIT para salir): ");
 						gets_s(input, sizeof(input));
 						
 						
@@ -146,12 +135,21 @@ int main(int *argc, char *argv[])
 							estado=S_QUIT;
 						}
 						else
-							sprintf_s (buffer_out, sizeof(buffer_out), "SUM 1 2%s",CRLF);
+							sprintf_s (buffer_out, sizeof(buffer_out), "SUM 1 2%s",CRLF);*/
+						sprintf_s(buffer_out, sizeof(buffer_out), "%s%s", DT,CRLF);
 						break;
+					case S_MSG:
+						sprintf_s(buffer_out, sizeof(buffer_out), "subject:Hola\r\n\r\nHola como estás\r\nYo bien\r\n%s", MAIL_END);
+						break;
+
 				
+					case S_EXIT:
+						sprintf_s(buffer_out, sizeof(buffer_out), "%s%s", SD, CRLF);
+						estado = S_QUIT;
+						break;
 					}
 
-					if(estado!=S_HELO){
+					if(estado!=S_W){
 						enviados=send(sockfd,buffer_out,(int)strlen(buffer_out),0);
 						if(enviados==SOCKET_ERROR){
 							 estado=S_QUIT;
@@ -174,29 +172,47 @@ int main(int *argc, char *argv[])
 						buffer_in[recibidos]=0x00;
 						printf(buffer_in);
 						
-						/*switch (estado) {
-						
-						case S_PASS:
+						switch (estado) {
+						case S_W:
+							if (strncmp(buffer_in, "220", 3) == 0) {
+								estado = S_HELO;
+							}else {
+								estado = S_EXIT;
+							}
+							break;
+						case S_HELO:
+							if (strncmp(buffer_in, "250", 3) == 0) {
+								estado = S_MAIL;
+							}
+							else {
+								estado = S_EXIT;
+							}
+							break;
+						case S_MAIL:
 							if (strncmp(buffer_in, OK, 2) == 0) {
 								estado++;
 							}
 							else {
-								estado = S_USER;
+								estado = S_RCPT;
 							}
 							break;
 						case S_DATA:
+							estado = S_MSG;
+
+							break;
+						case S_MSG:
+							estado = S_MAIL;
+
 							break;
 						default:
-							if (strncmp(buffer_in, OK, 2) == 0) {
-								estado++;
-							}
-							break;*/
+							
+							break;
 						
 						
 						
-						//}
+						}
 						
-					estado++;
+					
 						
 						
 						
